@@ -103,10 +103,11 @@ git fetch fork $HEAD_BRANCH
 # do the rebase
 git checkout -b fork/$HEAD_BRANCH fork/$HEAD_BRANCH
 if [[ $INPUT_AUTOSQUASH == 'true' ]]; then
-	GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/$BASE_BRANCH || failed_rebase=$?
+	GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/$BASE_BRANCH || echo "Failed 'git rebase --autosquash'"
 else
-	git rebase origin/$BASE_BRANCH || failed_rebase=$?
+	git rebase origin/$BASE_BRANCH || echo "Failed 'git rebase'"
 fi
+rebase_command_exit_code=$?
 
 # If rebase conflict arrise for only CHANGELOG, try resolving it:
 if [[ -d .git/rebase-apply ]] || [[ -d .git/rebase-merge ]] || [[ -f .git/REBASE_HEAD ]]; then
@@ -132,8 +133,8 @@ if [[ -d .git/rebase-apply ]] || [[ -d .git/rebase-merge ]] || [[ -f .git/REBASE
 		echo "$unmergedFiles"
 	fi
 else
-	if [[ $failed_rebase != 0 ]]; then
-		echo "Rebase command failed"
+	if [[ $rebase_command_exit_code != 0 ]]; then
+		echo "Rebase command failed not because of conflict"
 		exit 1
 	fi
 fi

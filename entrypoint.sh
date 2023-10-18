@@ -100,45 +100,53 @@ set -o xtrace
 git fetch origin $BASE_BRANCH
 git fetch fork $HEAD_BRANCH
 
+# Used to resolve CHANGELOG.md conflicts:
+function resolveChangelogConflict() {
+	# If rebase conflict arrise for only CHANGELOG.md, try resolving it:
+	if [[ -d .git/rebase-apply ]] || [[ -d .git/rebase-merge ]] || [[ -f .git/REBASE_HEAD ]]; then
+		if [[ $INPUT_CHANGELOGRESOLVER != 'true' ]]; then
+			echo "Rebase command failed with merge conflicts"
+			exit 1
+		fi
+
+		unmergedFiles=$(git diff --name-only --diff-filter=U)
+		unmergedFileCount=$(echo "$unmergedFiles" | wc -l)
+		changelogPath=$(echo "$unmergedFiles" | grep -i 'changelog\.md')
+
+		if [[ -n "$changelogPath" && $unmergedFileCount == '1' ]]; then
+			changelogAbsPath=$(realpath "$changelogPath")
+			# Use the resolve-changelog NodeJS script to resolve the change log
+			node /resolve-changelog/index.js $changelogAbsPath 
+			# Add the changelog to git staging area
+			git add $changelogAbsPath
+			# Continue the rebase without opening an editor for the comment message
+			GIT_EDITOR=true git rebase --continue || resolveChangelogConflict
+
+			# Old approach:
+			# git commit -m "$(git log -n 1 --pretty=format:"%s" ORIG_HEAD)"
+			# if [[ $? == 0 ]]; then
+			# 	git rebase --continue
+			# fi
+		else
+			echo "Unable to automatically resolve conflicts other than CHANGELOG:"
+			echo "$unmergedFiles"
+		fi
+	else
+		return 1
+	fi
+}
+
 # do the rebase
 git checkout -b fork/$HEAD_BRANCH fork/$HEAD_BRANCH
 if [[ $INPUT_AUTOSQUASH == 'true' ]]; then
-	GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/$BASE_BRANCH || echo "Failed 'git rebase --autosquash'"
+	GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/$BASE_BRANCH
+		|| resolveChangelogConflict
+		|| { echo "Failed 'git rebase --autosquash'" && exit 1; }
 else
-	git rebase origin/$BASE_BRANCH || echo "Failed 'git rebase'"
+	git rebase origin/$BASE_BRANCH || 
+		|| resolveChangelogConflict
+		|| { echo "Failed 'git rebase'" && exit 1; }
 fi
-rebase_command_exit_code=$?
-
-# If rebase conflict arrise for only CHANGELOG, try resolving it:
-if [[ -d .git/rebase-apply ]] || [[ -d .git/rebase-merge ]] || [[ -f .git/REBASE_HEAD ]]; then
-
-	if [[ $INPUT_CHANGELOGRESOLVER != 'true' ]]; then
-		echo "Rebase command failed with merge conflicts"
-		exit 1
-	fi
-
-	unmergedFiles=$(git diff --name-only --diff-filter=U)
-	unmergedFileCount=$(echo "$unmergedFiles" | wc -l)
-	changelogPath=$(echo "$unmergedFiles" | grep -i 'changelog\.md')
-
-	if [[ -n "$changelogPath" && $unmergedFileCount == '1' ]]; then
-		absPath=$(realpath "$changelogPath")
-		node /resolve-changelog/index.js $absPath && git add $absPath
-		git commit -m "$(git log -n 1 --pretty=format:"%s" ORIG_HEAD)"
-		if [[ $? == 0 ]]; then
-			git rebase --continue
-		fi
-	else
-		echo "Unable to automatically resolve conflicts other than CHANGELOG:"
-		echo "$unmergedFiles"
-	fi
-else
-	if [[ $rebase_command_exit_code != 0 ]]; then
-		echo "Rebase command failed not because of conflict"
-		exit 1
-	fi
-fi
-
 
 # push back
 git push --force-with-lease fork fork/$HEAD_BRANCH:$HEAD_BRANCH

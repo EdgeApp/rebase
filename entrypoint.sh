@@ -139,13 +139,13 @@ function resolveChangelogConflict() {
 # do the rebase
 git checkout -b fork/$HEAD_BRANCH fork/$HEAD_BRANCH
 if [[ $INPUT_AUTOSQUASH == 'true' ]]; then
-	GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/$BASE_BRANCH
-		|| resolveChangelogConflict
-		|| { echo "Failed 'git rebase --autosquash'" && exit 1; }
+	GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/$BASE_BRANCH ||
+		resolveChangelogConflict ||
+		{ echo "Failed 'git rebase --autosquash'" && exit 1; }
 else
 	git rebase origin/$BASE_BRANCH || 
-		|| resolveChangelogConflict
-		|| { echo "Failed 'git rebase'" && exit 1; }
+		resolveChangelogConflict || 
+		{ echo "Failed 'git rebase'" && exit 1; }
 fi
 
 # push back

@@ -41,16 +41,18 @@ for ((i = 0 ; i < $MAX_RETRIES ; i++)); do
 	fi
 done
 
-if [[ "$REBASEABLE" != "true" ]] ; then
-	echo "GitHub doesn't think that the PR is rebaseable!"
-	exit 1
+if [[ $INPUT_CHANGELOGRESOLVER != 'true' ]]; then
+	if [[ "$REBASEABLE" != "true" ]] ; then
+		echo "GitHub doesn't think that the PR is rebaseable!"
+		exit 1
+	fi
 fi
 
 BASE_REPO=$(echo "$pr_resp" | jq -r .base.repo.full_name)
 BASE_BRANCH=$(echo "$pr_resp" | jq -r .base.ref)
 
 USER_LOGIN=$(jq -r ".comment.user.login" "$GITHUB_EVENT_PATH")
-          
+
 if [[ "$USER_LOGIN" == "null" ]]; then
 	USER_LOGIN=$(jq -r ".pull_request.user.login" "$GITHUB_EVENT_PATH")
 fi
@@ -98,12 +100,52 @@ set -o xtrace
 git fetch origin $BASE_BRANCH
 git fetch fork $HEAD_BRANCH
 
+# Used to resolve CHANGELOG.md conflicts:
+function resolveChangelogConflict() {
+	# If rebase conflict arrise for only CHANGELOG.md, try resolving it:
+	if [[ -d .git/rebase-apply ]] || [[ -d .git/rebase-merge ]] || [[ -f .git/REBASE_HEAD ]]; then
+		if [[ $INPUT_CHANGELOGRESOLVER != 'true' ]]; then
+			echo "Rebase command failed with merge conflicts"
+			exit 1
+		fi
+
+		unmergedFiles=$(git diff --name-only --diff-filter=U)
+		unmergedFileCount=$(echo "$unmergedFiles" | wc -l)
+		changelogPath=$(echo "$unmergedFiles" | grep -i 'changelog\.md')
+
+		if [[ -n "$changelogPath" && $unmergedFileCount == '1' ]]; then
+			changelogAbsPath=$(realpath "$changelogPath")
+			# Use the resolve-changelog NodeJS script to resolve the change log
+			node /resolve-changelog/index.js $changelogAbsPath 
+			# Add the changelog to git staging area
+			git add $changelogAbsPath
+			# Continue the rebase without opening an editor for the comment message
+			GIT_EDITOR=true git rebase --continue || resolveChangelogConflict
+
+			# Old approach:
+			# git commit -m "$(git log -n 1 --pretty=format:"%s" ORIG_HEAD)"
+			# if [[ $? == 0 ]]; then
+			# 	git rebase --continue
+			# fi
+		else
+			echo "Unable to automatically resolve conflicts other than CHANGELOG:"
+			echo "$unmergedFiles"
+		fi
+	else
+		return 1
+	fi
+}
+
 # do the rebase
 git checkout -b fork/$HEAD_BRANCH fork/$HEAD_BRANCH
 if [[ $INPUT_AUTOSQUASH == 'true' ]]; then
-	GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/$BASE_BRANCH
+	GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/$BASE_BRANCH ||
+		resolveChangelogConflict ||
+		{ echo "Failed 'git rebase --autosquash'" && exit 1; }
 else
-	git rebase origin/$BASE_BRANCH
+	git rebase origin/$BASE_BRANCH || 
+		resolveChangelogConflict || 
+		{ echo "Failed 'git rebase'" && exit 1; }
 fi
 
 # push back

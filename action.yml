@@ -9,6 +9,10 @@ inputs:
     description: Should the rebase autosquash fixup and squash commits
     required: false
     default: 'false'
+  changelogResolver:
+    description: Should the rebase resolve conflicts in the "Unreleased" section in the changelog
+    required: false
+    default: 'false'
 branding:
   icon: git-pull-request
   color: purple

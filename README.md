@@ -35,6 +35,7 @@ jobs:
         uses: cirrus-actions/rebase@1.8
         with:
           autosquash: ${{ contains(github.event.comment.body, '/autosquash') || contains(github.event.comment.body, '/rebase-autosquash') }}
+          changelogResolver: ${{ true }} # Enables changelog conflict resolver
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
